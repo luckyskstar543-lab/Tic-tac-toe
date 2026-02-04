@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Viper Pro - Ultimate Edition</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+:root { 
+    --p: #00f2ff; --s: #ff2d55; --bg: #050508; 
+}
+
+body { 
+    margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; 
+    background: var(--bg); font-family: 'Orbitron', sans-serif; color: white; 
+    overflow: hidden; touch-action: none;
+}
+
+/* INTRO & LOADING */
+#introOverlay, #loadingOverlay {
+    position: fixed; inset: 0; background: #000; z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+
+.snake-logo {
+    width: 80px; height: 80px; border: 4px solid var(--p); border-radius: 50%;
+    position: relative; animation: snakePulse 2s infinite ease-in-out;
+}
+
+.snake-logo::after {
+    content: ''; position: absolute; top: 8px; left: 8px; width: 15px; height: 15px;
+    background: var(--p); border-radius: 50%; box-shadow: 0 0 15px var(--p);
+    animation: snakeMove 3s infinite linear;
+}
+
+@keyframes snakePulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(0,242,255,0.2); }
+    50% { transform: scale(1.1); box-shadow: 0 0 50px rgba(0,242,255,0.5); }
+}
+
+@keyframes snakeMove {
+    0% { top: 8px; left: 8px; } 25% { top: 8px; left: 50px; }
+    50% { top: 50px; left: 50px; } 75% { top: 50px; left: 8px; }
+    100% { top: 8px; left: 8px; }
+}
+
+.loader-bar-container { width: 200px; height: 4px; background: rgba(255,255,255,0.1); margin-top: 20px; overflow: hidden; }
+.loader-fill { width: 0%; height: 100%; background: var(--p); box-shadow: 0 0 15px var(--p); }
+
+/* SCREEN CENTERING LOGIC */
+.screen { 
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; z-index: 500; width: 85%; max-width: 350px; display: none; 
+    padding: 25px; border-radius: 20px; background: rgba(10, 10, 15, 0.98);
+    border: 1px solid var(--p); box-shadow: 0 0 30px rgba(0, 242, 255, 0.3); backdrop-filter: blur(20px);
+}
+
+.btn { 
+    width: 100%; padding: 15px; margin: 8px 0; border: 1px solid rgba(0, 242, 255, 0.3);
+    background: linear-gradient(45deg, rgba(0,242,255,0.1), transparent);
+    color: #fff; font-family: 'Orbitron'; cursor: pointer; border-radius: 12px;
+    -webkit-tap-highlight-color: transparent; outline: none;
+}
+
+canvas { 
+    background: #000; border: 2px solid #222; 
+    width: 90vw; height: 90vw; max-width: 500px; max-height: 500px;
+    border-radius: 8px;
+}
+
+.hud { width: 90vw; max-width: 500px; display: flex; justify-content: space-between; margin-bottom: 10px; color: var(--p); font-size: 14px; }
+.best-score-label { font-size: 0.8rem; color: #777; margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<div id="introOverlay"><div class="snake-logo"></div><div style="margin-top:20px; letter-spacing:5px; color:var(--p)">VIPER PRO</div></div>
+<div id="loadingOverlay" style="display:none;"><div style="color:var(--p); font-size:0.8rem;">SYNCING...</div><div class="loader-bar-container"><div id="loaderFill" class="loader-fill"></div></div></div>
+
+<div id="startMenu" class="screen">
+    <h1 style="color: var(--p); font-size: 1.5rem; margin-bottom: 5px;">VIPER PRO</h1>
+    <div class="best-score-label">BEST: <span id="menuBest">0</span></div><br>
+    <button class="btn" onclick="startGame()">INITIALIZE</button>
+    <button class="btn" onclick="openSettings()">SETTINGS</button>
+</div>
+
+<div id="settingsMenu" class="screen">
+    <h3 style="color: var(--p)">CONFIG_CORE</h3>
+    <button class="btn" id="sfxBtn" onclick="togglePref('sfx')">AUDIO: <span id="sfxStatus">OFF</span></button>
+    <button class="btn" id="vibBtn" onclick="togglePref('vib')">HAPTICS: <span id="vibStatus">OFF</span></button>
+    <button class="btn" onclick="closeSettings()" style="margin-top:20px; border-color:var(--p)">RESUME</button>
+</div>
+
+<div id="crashBoard" class="screen">
+    <h2 style="color: var(--s)">SYSTEM CRASH</h2>
+    <p>SCORE: <span id="finalScore">0</span></p>
+    <p style="color: var(--p); font-size: 0.9rem;">HIGHEST: <span id="bestScore">0</span></p>
+    <button class="btn" onclick="startGame()">REBOOT</button>
+    <button class="btn" onclick="nav('startMenu')" style="border-color: #555;">BACK</button>
+</div>
+
+<div id="gameArea" style="display:none; flex-direction:column; align-items:center;">
+    <div class="hud">
+        <div>SCORE: <span id="score">0</span></div>
+        <div onclick="openSettings()" style="cursor:pointer; padding: 0 10px;">[PAUSE]</div>
+    </div>
+    <canvas id="canvas" width="600" height="600"></canvas>
+</div>
+
+<script>
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let prefs = { sfx: false, vib: false };
+const GAME_SPEED = 188; // 30% slower than original
+
+// Initialize High Score
+let highScore = localStorage.getItem('viperBest') || 0;
+document.getElementById('menuBest').innerText = highScore;
+
+function playCoolSound(type) {
+    if(!prefs.sfx) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.connect(g); g.connect(audioCtx.destination);
+    if(type === 'eat') {
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    } else if(type === 'crash') {
+        osc.type = 'sawtooth';
+        g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+    }
+}
+
+function triggerVibe(type) {
+    if(!prefs.vib || !navigator.vibrate) return;
+    navigator.vibrate(type === 'eat' ? 25 : 100);
+}
+
+window.onload = () => {
+    setTimeout(() => {
+        document.getElementById('introOverlay').style.display = 'none';
+        let load = document.getElementById('loadingOverlay');
+        let fill = document.getElementById('loaderFill');
+        load.style.display = 'flex';
+        let p = 0;
+        let itv = setInterval(() => {
+            p += 1; fill.style.width = p + "%";
+            if(p >= 100) { clearInterval(itv); load.style.display='none'; nav('startMenu'); }
+        }, 100); // 10 seconds loading
+    }, 10000); // 10 seconds intro
+};
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let snake, food, dir, nextDir, score, isRunning = false, isPaused = false;
+let snakeColor = "#00f2ff", targetColor = "#00f2ff";
+
+function nav(id) {
+    isPaused = false;
+    document.querySelectorAll('.screen, #gameArea').forEach(s => s.style.display = 'none');
+    document.getElementById(id).style.display = (id === 'gameArea') ? 'flex' : 'block';
+    if(id === 'startMenu') document.getElementById('menuBest').innerText = highScore;
+}
+
+function openSettings() { 
+    isPaused = true; 
+    document.getElementById('settingsMenu').style.display = 'block'; 
+}
+
+function closeSettings() { 
+    document.getElementById('settingsMenu').style.display = 'none'; 
+    if(isRunning) isPaused = false; else nav('startMenu'); 
+}
+
+function togglePref(p) {
+    prefs[p] = !prefs[p];
+    document.getElementById(p+'Status').innerText = prefs[p] ? 'ON' : 'OFF';
+}
+
+let tX, tY;
+document.addEventListener('touchstart', e => { tX = e.touches[0].clientX; tY = e.touches[0].clientY; }, {passive: false});
+document.addEventListener('touchend', e => {
+    if(isPaused || !isRunning) return;
+    let dx = e.changedTouches[0].clientX - tX, dy = e.changedTouches[0].clientY - tY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 20) {
+        if (dx > 0 && dir !== "LEFT") nextDir = "RIGHT"; else if (dx < 0 && dir !== "RIGHT") nextDir = "LEFT";
+    } else if (Math.abs(dy) > 20) {
+        if (dy > 0 && dir !== "UP") nextDir = "DOWN"; else if (dy < 0 && dir !== "DOWN") nextDir = "UP";
+    }
+});
+
+function startGame() { 
+    nav('gameArea'); 
+    snake = [{x:10, y:10}, {x:10, y:11}, {x:10, y:12}];
+    dir = "UP"; nextDir = "UP"; score = 0;
+    document.getElementById('score').innerText = "0";
+    spawnFood(); isRunning = true; requestAnimationFrame(loop); 
+}
+
+function spawnFood() {
+    const colors = ["#ff2d55", "#00f2ff", "#00ff41", "#ffcc00", "#ff00ff"];
+    food = { x: Math.floor(Math.random()*20), y: Math.floor(Math.random()*20), c: colors[Math.floor(Math.random()*colors.length)] };
+}
+
+let last = 0;
+function loop(t) {
+    if(!isRunning) return;
+    if(!isPaused && t - last > GAME_SPEED) { update(); last = t; }
+    draw();
+    requestAnimationFrame(loop);
+}
+
+function update() {
+    dir = nextDir;
+    let h = {...snake[0]};
+    if(dir === "UP") h.y--; else if(dir === "DOWN") h.y++;
+    else if(dir === "LEFT") h.x--; else if(dir === "RIGHT") h.x++;
+
+    if(h.x<0 || h.y<0 || h.x>=20 || h.y>=20 || snake.some(s=>s.x===h.x && s.y===h.y)) {
+        isRunning = false; 
+        if(score > highScore) {
+            highScore = score;
+            localStorage.setItem('viperBest', highScore);
+        }
+        playCoolSound('crash'); triggerVibe('crash');
+        document.getElementById('finalScore').innerText = score; 
+        document.getElementById('bestScore').innerText = highScore;
+        nav('crashBoard'); return;
+    }
+
+    snake.unshift(h);
+    if(h.x === food.x && h.y === food.y) {
+        score += 1;
+        document.getElementById('score').innerText = score;
+        targetColor = food.c; playCoolSound('eat'); triggerVibe('eat'); spawnFood();
+    } else { snake.pop(); }
+}
+
+function draw() {
+    ctx.fillStyle = "#020205"; ctx.fillRect(0,0,600,600);
+    ctx.strokeStyle = "rgba(0, 242, 255, 0.15)";
+    for(let i=0; i<=600; i+=30) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 600); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(600, i); ctx.stroke();
+    }
+    ctx.fillStyle = food.c; ctx.shadowBlur = 10; ctx.shadowColor = food.c;
+    ctx.beginPath(); ctx.arc(food.x*30+15, food.y*30+15, 10, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+    snakeColor = lerpColor(snakeColor, targetColor, 0.1);
+    snake.forEach((s, i) => {
+        ctx.fillStyle = snakeColor;
+        if(i === 0) {
+            ctx.beginPath(); ctx.roundRect(s.x*30, s.y*30, 30, 30, 8); ctx.fill();
+        } else {
+            ctx.globalAlpha = 1 - (i/snake.length)*0.5;
+            ctx.beginPath(); ctx.roundRect(s.x*30+3, s.y*30+3, 24, 24, 5); ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    });
+}
+
+function lerpColor(a, b, amount) {
+    const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16),
+          ar = ah >> 16, ag = ah >> 8 & 0xff, ab = ah & 0xff,
+          br = bh >> 16, bg = bh >> 8 & 0xff, bb = bh & 0xff,
+          rr = ar + amount * (br - ar), rg = ag + amount * (bg - ag), rb = ab + amount * (bb - ab);
+    return '#' + ((1 << 24) + (rr << 16) + (rg << 8) + rb | 0).toString(16).slice(1);
+}
+</script>
+</body>
+</html>
